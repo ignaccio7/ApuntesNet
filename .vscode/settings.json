@@ -1,0 +1,9 @@
+{
+  "dotnet.defaultSolution": "TodoList.sln",
+  "editor.semanticHighlighting.enabled": false,
+  "workbench.colorCustomizations": {
+    "[One Dark Pro]": {
+      "editorSemanticHighlighting.background": null
+    }
+  }
+}
