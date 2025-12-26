@@ -717,7 +717,7 @@ app.MapGet("/todos", () =>
 app.Run();
 ```
 
-### Agregando modificacion y eliminacion ademas de separar em Servicios y Rutas de API V2
+## Agregando modificacion y eliminacion ademas de separar em Servicios y Rutas de API V2
 
 Para este punto separaremos la logica en diferentes archivos crearemos tambien asi una interfaz para que el servicio lo implemente y luego proceder a separar los endpoints respectivos de la creacion de *todos* y sacarlos a un archivo aparte y usarlo en nuestro punto de entrada **program.cs**.
 
@@ -1005,14 +1005,223 @@ app.Run();
 
 ```
 
+## Finalizando la modificacion y eliminacion ademas de separar em Servicios y Rutas de API tanto en **Todos** como en **Users** V3
+
+* Models → entidades internas
+* Dtos → lo que entra / sale de la API
+* Services → lógica
+* Endpoints → rutas
 
 ```bash
+TodoList/
+│
+├── Models/
+│   ├── User.cs
+│   └── Todo.cs
+│
+├── Dtos/
+│   ├── CreateUserDto.cs
+│   ├── UserResponseDto.cs
+│   ├── CreateTodoDto.cs
+│   └── UpdateTodoDto.cs
+│
+├── Services/
+│   ├── IUserService.cs
+│   ├── UserService.cs
+│   ├── ITodoService.cs
+│   └── TodoService.cs
+│
+├── Endpoints/
+│   ├── UserEndpoints.cs
+│   └── TodoEndpoints.cs
+│
+├── Program.cs
+```
+
+`CreateUserDto.cs`
+```csharp
+namespace TodoList.Dtos;
+
+public class CreateUserDto
+{
+  public string Name { get; set; } = string.Empty;
+}
+```
+
+
+`UserResponseDto.cs`
+```csharp
+namespace TodoList.Dtos;
+
+public class UserResponseDto
+{
+  public int Id { get; set; }
+  public string Name { get; set; } = string.Empty;
+}
+```
+
+`User.cs`
+```csharp
+namespace TodoList.Models;
+
+public class User
+{
+  public int Id { get; set; }
+  public string Name { get; set; }
+
+  // Relacion -> un usuario tiene muchos todos
+  // que sera opcional porque puede crearse un user sin todos
+  public List< Todo>? Todos { get; set; } = new();
+}
+```
+
+`IUserService.cs`
+```csharp
+using TodoList.Dtos;
+
+namespace TodoList.Services;
+
+public interface IUserService
+{
+  List<UserResponseDto> GetAll();
+  UserResponseDto Create(string name);
+}
+```
+
+
+`UserService.cs`
+```csharp
+using TodoList.Models;
+using TodoList.Dtos;
+
+namespace TodoList.Services;
+
+public class UserService : IUserService
+{
+  private readonly List<User> _users;
+  private int _nextId = 1;
+
+  public UserService(List<User> users)
+  {
+    _users = users;
+  }
+
+  public List<UserResponseDto> GetAll()
+  {
+    return _users.Select(user => new UserResponseDto
+    {
+      Id = user.Id,
+      Name = user.Name
+    }).ToList();
+  }
+
+  public UserResponseDto Create(string name)
+  {
+    if (string.IsNullOrWhiteSpace(name))
+      throw new Exception("El nombre es obligatorio");
+
+    var user = new User
+    {
+      Id = _nextId++,
+      Name = name
+    };
+
+    _users.Add(user);
+
+    return new UserResponseDto
+    {
+      Id = user.Id,
+      Name = user.Name
+    };
+  }
+
+}
+```
+
+
+`UserEndpoints.cs`
+```csharp
+using TodoList.Dtos;
+using TodoList.Models;
+using TodoList.Services;
+
+namespace TodoList.Endpoints;
+
+public static class UserEndpoints
+{
+  // Es como decir “Quiero que WebApplication tenga un método nuevo llamado MapUserEndpoints()”
+  // antes -> UserEndpoints.MapUserEndpoints(app);
+  // despues -> app.MapUserEndpoints();
+  public static void MapUserEndpoints(this WebApplication app)
+  {
+    app.MapGet("/users", (IUserService service) =>
+    {
+      var users = service.GetAll();
+      return Results.Ok(users);
+    });
+
+    app.MapPost("/users", (CreateUserDto dto, IUserService service) =>
+    {
+      var user = service.Create(dto.Name);
+      return Results.Ok(user);
+    });
+  }
+}
+```
+
+
+`Program.cs`
+```csharp
+using TodoList.Models;
+using TodoList.Dtos;
+using TodoList.Services;
+using TodoList.Endpoints;
+// using System.Data.Common;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddEndpointsApiExplorer(); // Para que swagger descubra los endpoints
+builder.Services.AddSwaggerGen(); // Para que swagger genere la documentacion
+
+var todos = new List<Todo>();
+// var nextTodoId = 1;
+
+var users = new List<User>();
+// var nextUserId = 1;
+
+builder.Services.AddSingleton(users);
+builder.Services.AddSingleton(todos);
+builder.Services.AddSingleton<IUserService, UserService>();
+builder.Services.AddSingleton<ITodoService, TodoService>();
+
+var app = builder.Build();
+
+// Configure the HTTP request pipeline.
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+// Redirige automáticamente a HTTPS si alguien hace un request HTTP
+app.UseHttpsRedirection();
+
+
+app.MapUserEndpoints();
+app.MapTodoEndpoints();
+
+app.Run();
 
 ```
 
-```bash
+
+`.cs`
+```csharp
 
 ```
+
+
+
 
 ```bash
 

@@ -13,10 +13,11 @@ var todos = new List<Todo>();
 // var nextTodoId = 1;
 
 var users = new List<User>();
-var nextUserId = 1;
+// var nextUserId = 1;
 
 builder.Services.AddSingleton(users);
 builder.Services.AddSingleton(todos);
+builder.Services.AddSingleton<IUserService, UserService>();
 builder.Services.AddSingleton<ITodoService, TodoService>();
 
 var app = builder.Build();
@@ -118,35 +119,35 @@ app.UseHttpsRedirection();
 // ======================
 // CREAR UN NUEVO USUARIO
 // ======================
-app.MapPost("/users", (string name) =>
-{
-    if (string.IsNullOrWhiteSpace(name))    
-    {
-        return Results.BadRequest("El campo 'name' es obligatorio");
-    }
+// app.MapPost("/users", (string name) =>
+// {
+//     if (string.IsNullOrWhiteSpace(name))    
+//     {
+//         return Results.BadRequest("El campo 'name' es obligatorio");
+//     }
 
-    var user = new User
-    {
-        Id = nextUserId++,
-        Name = name
-    };
+//     var user = new User
+//     {
+//         Id = nextUserId++,
+//         Name = name
+//     };
 
-    users.Add(user);
-    return Results.Ok(user);
-});
+//     users.Add(user);
+//     return Results.Ok(user);
+// });
 
-// ======================
-// LISTAR TODOS LOS USUARIOS
-// ======================
-app.MapGet("/users", () =>
-{
-    var response = users.Select(user => new
-    {
-        user.Id,
-        user.Name
-    }).ToList();
-    return Results.Ok(response);
-});
+// // ======================
+// // LISTAR TODOS LOS USUARIOS
+// // ======================
+// app.MapGet("/users", () =>
+// {
+//     var response = users.Select(user => new
+//     {
+//         user.Id,
+//         user.Name
+//     }).ToList();
+//     return Results.Ok(response);
+// });
 
 // // ======================
 // // CREAR UN NUEVO TODO
@@ -211,6 +212,7 @@ app.MapGet("/users", () =>
 //     }));
 // });
 
+app.MapUserEndpoints();
 app.MapTodoEndpoints();
 
 app.Run();
