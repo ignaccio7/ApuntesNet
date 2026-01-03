@@ -1,5 +1,6 @@
 using TodoList.Models;
 using TodoList.Dtos;
+using TodoList.Exceptions;
 
 namespace TodoList.Services;
 
@@ -60,7 +61,7 @@ public class TodoService : ITodoService
     var todo = _todos.Find(t => t.Id == id);
     if (todo == null)
     {
-      throw new Exception("Todo no existe");
+      throw new NotFoundException("Todo no existe");
     }
 
     todo.Title = title;

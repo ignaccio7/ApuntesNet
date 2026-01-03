@@ -2,7 +2,11 @@ using TodoList.Models;
 using TodoList.Dtos;
 using TodoList.Services;
 using TodoList.Endpoints;
-// using System.Data.Common;
+using TodoList.Validators;
+using FluentValidation;
+using TodoList.Exceptions;
+using Microsoft.AspNetCore.Diagnostics;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,7 +24,40 @@ builder.Services.AddSingleton(todos);
 builder.Services.AddSingleton<IUserService, UserService>();
 builder.Services.AddSingleton<ITodoService, TodoService>();
 
+// Registrar validadores automáticamente
+builder.Services.AddValidatorsFromAssemblyContaining<CreateUserDtoValidator>();
+
 var app = builder.Build();
+
+
+// Como manejamos errores globales
+// ✅ 1. Middleware de errores SIEMPRE ARRIBA
+app.UseExceptionHandler(errorApp =>
+{    
+    errorApp.Run(async context =>
+    {
+        
+        context.Response.ContentType = "application/json";
+
+        var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
+
+        if (exception is NotFoundException)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                error = exception.Message
+            });
+            return;
+        }
+        
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        await context.Response.WriteAsJsonAsync(new
+        {
+            error = "Ocurrió un error inesperado"
+        });
+    });
+});
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
