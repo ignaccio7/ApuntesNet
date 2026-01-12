@@ -1214,6 +1214,946 @@ app.Run();
 
 ```
 
+## Agregamos validacion con FLuentValidation
+
+✅ Declarativa
+✅ Reutilizable
+✅ Separada de la lógica de negocio
+✅ Muy usada en proyectos profesionales
+👉 NO valida strings sueltos, valida objetos completos (DTOs).
+
+
+Evita esto 👇 (validaciones manuales repetidas):
+```csharp
+if (string.IsNullOrWhiteSpace(dto.Name))
+{
+    return Results.BadRequest("Name es obligatorio");
+}
+```
+
+Y lo reemplaza por:
+
+```csharp
+RuleFor(x => x.Name)
+    .NotEmpty()
+    .MinimumLength(3);
+```
+
+Para instalarlo de la siguiente pagina [FluentValidation](https://www.nuget.org/packages/FluentValidation) y [DependencyInjectionExtensions](https://www.nuget.org/packages/FluentValidation.DependencyInjectionExtensions). Y luego veremos las dependencias en el `TodoList.csproj`.
+
+```bash
+dotnet add package FluentValidation --version 12.1.1
+dotnet add package FluentValidation.DependencyInjectionExtensions --version 12.1.1
+```
+
+Tambien podemos ver los paquetes instalador con el siguiente comando:
+```bash
+dotnet list package
+```
+
+Porque instalamos dos paquetes. 
+* FluentValidation
+Te da:
+ 1. AbstractValidator<T>
+ 2. RuleFor
+ 3. NotEmpty, MinimumLength, etc
+ 4. Validate, ValidateAsync
+👉 Solo valida, no sabe nada de ASP.NET
+
+* FluentValidation.DependencyInjectionExtensions
+Te da:
+ 1. AddValidatorsFromAssemblyContaining<T>()
+ 2. Integración con IServiceCollection
+ 3. Permite inyectar validadores en endpoints
+
+👉 Esto es lo que necesitamos
+
+Para ello la estructura de carpetas que realizaremos es la siguiente;
+
+```bash
+TodoList/
+│
+├── Models/
+│   ├── User.cs
+│   └── Todo.cs
+│
+├── Dtos/
+│   ├── CreateUserDto.cs
+│   ├── UserResponseDto.cs
+│   ├── CreateTodoDto.cs
+│   └── UpdateTodoDto.cs
+│
+├── Services/
+│   ├── IUserService.cs
+│   ├── UserService.cs
+│   ├── ITodoService.cs
+│   └── TodoService.cs
+│
+├── Endpoints/
+│   ├── UserEndpoints.cs <- Cambiaremos este archivo
+│   └── TodoEndpoints.cs
+│
+├── Validators/
+│   ├── CreateUserDtoValidator.cs <- Crearemos este para validacion
+│
+├── Program.cs <- Registraremos los validadores aqui
+```
+
+El flujo que seguira nuestra aplicacion sera el siguiente:
+```bash
+📦 JSON del cliente
+        ↓
+🧩 DTO (CreateTodoDto)
+        ↓
+✅ FluentValidation
+        ↓
+❌ Errores → ValidationProblem (400)
+        ↓
+✅ OK → Service
+        ↓
+🧠 Lógica de negocio
+        ↓
+📤 Respuesta
+```
+
+
+`CreateUserDtoValidator.cs`
+```csharp
+using FluentValidation;
+using TodoList.Dtos;
+
+namespace TodoList.Validators;
+
+public class CreateUserDtoValidator : AbstractValidator<CreateUserDto>
+{
+  public CreateUserDtoValidator()
+  {
+    RuleFor(x => x.Name)
+      .NotEmpty().WithMessage("El campo 'name' es obligatorio")
+      .MinimumLength(3).WithMessage("El campo 'name' debe tener al menos 3 caracteres");
+  }
+  
+}
+```
+
+`UserEndpoints.cs`
+```csharp
+// Para entender la validacion primero agregamos en el metodo POST
+ app.MapPost("/users", async (
+      CreateUserDto dto, 
+      IValidator<CreateUserDto> validator, 
+      IUserService service
+    ) =>
+    {
+
+      var result = await validator.ValidateAsync(dto);
+
+      if(!result.IsValid)
+      {
+        return Results.ValidationProblem(
+          result.Errors
+            .GroupBy(e => e.PropertyName)
+            .ToDictionary(
+              g => g.Key,
+              g => g.Select(e => e.ErrorMessage).ToArray()
+            )
+          ); 
+      }
+
+      var user = service.Create(dto.Name);
+      return Results.Ok(user);
+    });
+  }
+```
+
+`Program.cs`
+```csharp
+using TodoList.Models;
+using TodoList.Dtos;
+using TodoList.Services;
+using TodoList.Endpoints;
+using TodoList.Validators;
+using FluentValidation;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddEndpointsApiExplorer(); // Para que swagger descubra los endpoints
+builder.Services.AddSwaggerGen(); // Para que swagger genere la documentacion
+
+var todos = new List<Todo>();
+// var nextTodoId = 1;
+
+var users = new List<User>();
+// var nextUserId = 1;
+
+builder.Services.AddSingleton(users);
+builder.Services.AddSingleton(todos);
+builder.Services.AddSingleton<IUserService, UserService>();
+builder.Services.AddSingleton<ITodoService, TodoService>();
+
+// Registrar validadores automáticamente
+builder.Services.AddValidatorsFromAssemblyContaining<CreateUserDtoValidator>();
+
+var app = builder.Build();
+
+// Configure the HTTP request pipeline.
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+// Redirige automáticamente a HTTPS si alguien hace un request HTTP
+app.UseHttpsRedirection();
+
+
+app.MapUserEndpoints();
+app.MapTodoEndpoints();
+
+app.Run();
+```
+
+Y finalmente al verlo funcionando y probando en la API veremos resultados de esta manera:
+`response`
+```json
+Error: Bad Request
+Response body
+Download
+{
+  "type": "https://tools.ietf.org/html/rfc9110#section-15.5.1",
+  "title": "One or more validation errors occurred.",
+  "status": 400,
+  "errors": {
+    "Name": [
+      "El campo 'name' es obligatorio",
+      "El campo 'name' debe tener al menos 3 caracteres"
+    ]
+  }
+}
+```
+
+### Finalmente agregamos las validaciones correspondientes a nuestro **TODO**
+
+```bash
+TodoList/
+│
+├── Models/
+│   ├── User.cs
+│   └── Todo.cs
+│
+├── Dtos/
+│   ├── CreateUserDto.cs
+│   ├── CreateTodoDto.cs
+│   ├── UpdateTodoDto.cs
+│
+├── Validators/
+│   ├── CreateUserDtoValidator.cs
+│   ├── CreateTodoDtoValidator.cs
+│   └── UpdateTodoDtoValidator.cs
+│
+├── Services/
+│   ├── IUserService.cs
+│   ├── UserService.cs
+│   ├── ITodoService.cs
+│   └── TodoService.cs
+│
+├── Endpoints/
+│   ├── UserEndpoints.cs
+│   └── TodoEndpoints.cs
+│
+├── Program.cs
+
+```
+
+Agregando los archvivos de validacion que nos faltaban para nuestro servicio del TODO se volverian de la siguiente manera:
+
+`CreateTodoDtoValidator.cs`
+```csharp
+using FluentValidation;
+using TodoList.Dtos;
+
+namespace Todolist.Validators;
+
+public class CreateTodoDtoValidator : AbstractValidator<CreateTodoDto>
+{
+  public CreateTodoDtoValidator()
+  {
+    RuleFor(x => x.Title)
+      .NotEmpty().WithMessage("El titulo es obligatorio")
+      .MinimumLength(10).WithMessage("El titulo debe tener al menos 10 caracteres");
+
+    RuleFor(x => x.UserId)
+      .NotEmpty().WithMessage("El campo 'userId' es obligatorio")
+      .GreaterThan(0).WithMessage("El userId debe ser mayor a 0");
+
+  }
+}
+```
+
+`UpdateTodoDtoValidator.cs`
+```csharp
+using FluentValidation;
+using TodoList.Dtos;
+
+namespace TodoList.Validators;
+
+public class UpdateTodoDtoValidator : AbstractValidator<UpdateTodoDto>
+{
+
+  public UpdateTodoDtoValidator()
+  {
+    RuleFor(x => x.Title)
+      .NotEmpty().WithMessage("El titulo es obligatorio")
+      .MinimumLength(10).WithMessage("El titulo debe tener al menos 10 caracteres");
+  }
+
+}
+```
+
+`TodoEndpoints.cs`
+```csharp
+using TodoList.Dtos;
+using TodoList.Services;
+using TodoList.Models;
+using TodoList.Validators;
+using FluentValidation;
+
+namespace TodoList.Endpoints;
+
+public static class TodoEndpoints
+{
+  public static void MapTodoEndpoints(this WebApplication app)
+  {
+    app.MapGet("/todos", (ITodoService service) =>
+    {
+      var todos = service.GetAll();
+      return Results.Ok(todos);
+    });
+
+    // app.MapPost("/todos", (CreateTodoDto dto, ITodoService service) =>
+    // {
+    //   var todo = service.Create(dto.Title, dto.UserId);
+
+    //   return Results.Ok(todo);
+    // });
+
+    app.MapPost("/todos", async (CreateTodoDto dto, ITodoService service,IValidator<CreateTodoDto> validator) =>
+    {
+      var result = await validator.ValidateAsync(dto);
+
+      Console.WriteLine(result);
+      Console.WriteLine(result.Errors);
+
+      if(!result.IsValid)
+      {
+        var errors = result.Errors
+          .GroupBy(e => e.PropertyName)
+          .ToDictionary(
+            g => g.Key,
+            g => g.Select(e => e.ErrorMessage).ToArray()
+          );
+
+        return Results.ValidationProblem(errors);
+      }
+
+      var todo = service.Create(dto.Title, dto.UserId);
+
+      return Results.Ok(todo);
+    });
+
+    // app.MapPut("/todos/{id}", (int id, UpdateTodoDto dto, ITodoService service) =>
+    // {
+    //   var ok = service.Update(id, dto.Title, dto.IsCompleted);
+    //   return ok ? Results.Ok() : Results.NotFound();
+    // });
+
+    app.MapPut("/todos/{id}", async (int id, UpdateTodoDto dto, IValidator<UpdateTodoDto> validator,ITodoService service) =>
+    {
+      var result = await validator.ValidateAsync(dto);
+
+      if(!result.IsValid)
+      {
+        return Results.ValidationProblem(
+          result.Errors
+            .GroupBy(e => e.PropertyName)
+            .ToDictionary(
+              g => g.Key,
+              g => g.Select(e => e.ErrorMessage).ToArray()
+            )
+          ); 
+      }
+
+      var ok = service.Update(id, dto.Title, dto.IsCompleted);
+      return ok ? Results.Ok() : Results.NotFound();
+    });
+
+    app.MapDelete("/todos/{id}", (int id, ITodoService service) =>
+    {
+      var ok = service.Delete(id);
+      return ok ? Results.Ok() : Results.NotFound();
+    });
+
+  }
+}
+```
+Y el `Program.cs` se volvera de la siguiente manera y notaremos que no tiene cambio alguno puesto que solo basto com registrar la siguiente linea:
+
+```csharp
+builder.Services.AddValidatorsFromAssemblyContaining<CreateUserDtoValidator>();
+```
+
+Con esta linea basto para que se registren todos los demas validadores que podamos necesitar en nuestro proyecto.
+
+`Program.cs`
+```csharp
+using TodoList.Models;
+using TodoList.Dtos;
+using TodoList.Services;
+using TodoList.Endpoints;
+using TodoList.Validators;
+using FluentValidation;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddEndpointsApiExplorer(); // Para que swagger descubra los endpoints
+builder.Services.AddSwaggerGen(); // Para que swagger genere la documentacion
+
+var todos = new List<Todo>();
+// var nextTodoId = 1;
+
+var users = new List<User>();
+// var nextUserId = 1;
+
+builder.Services.AddSingleton(users);
+builder.Services.AddSingleton(todos);
+builder.Services.AddSingleton<IUserService, UserService>();
+builder.Services.AddSingleton<ITodoService, TodoService>();
+
+builder.Services.AddValidatorsFromAssemblyContaining<CreateUserDtoValidator>();
+
+var app = builder.Build();
+
+// Configure the HTTP request pipeline.
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+// Redirige automáticamente a HTTPS si alguien hace un request HTTP
+app.UseHttpsRedirection();
+
+app.MapUserEndpoints();
+app.MapTodoEndpoints();
+
+app.Run();
+
+```
+
+## Agregando un middleware global para manejar errores
+
+Si recordamos en nuestro archivo `TodoService.cs` tenemos una linea que dispara un error al no encontrar el Todo al momento de actualizar
+`TodoService.cs`
+```csharp
+...
+
+    var todo = _todos.Find(t => t.Id == id);
+    if (todo == null)
+    {
+      throw new Exception("Todo no existe"); <- Esta linea
+    }
+...
+```
+
+Esta linea **rompe la aplicacion** lo que no queremos. Asi que para eso lo que podemos hacer es en nuestro archivo `Program.cs` agregar un middleware global que maneje los errores que puedan ocurrir en nuestro proyecto.
+El mas sencillo seria de esta forma:
+
+`Program.cs`
+```csharp
+...
+var app = builder.Build();
+
+
+// Como manejamos errores globales
+// ✅ 1. Middleware de errores SIEMPRE ARRIBA
+app.UseExceptionHandler(errorApp =>
+{
+    Console.WriteLine("ErrorApp");
+    Console.WriteLine(errorApp);
+    
+    errorApp.Run(async context =>
+    {
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        context.Response.ContentType = "application/json";
+
+        await context.Response.WriteAsJsonAsync(new
+        {
+            error = "Ocurrió un error inesperado"
+        });
+    });
+});
+
+// Configure the HTTP request pipeline.
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+...
+```
+
+Ya si queremos mejorar con clases personalizadas nuestros errores lo haremos de la siguiente manera:
+
+Crearemos la carpeta `Exceptions` y dentro de ella crearemos el archivo o archivos en este caso `NotFoundException.cs` que heredaran de la clase `Exception` y que nos permitirá crear nuestros propios errores personalizados.
+
+`NotFoundException.cs`
+```csharp
+namespace TodoList.Exceptions;
+
+public class NotFoundException : Exception
+{
+  public NotFoundException(string message) : base(message) {}
+}
+```
+
+Y en nuestro `Program.cs` modificaremos la funcion de la siguiente manera:
+
+`Program.cs`
+```csharp
+using TodoList.Models;
+using TodoList.Dtos;
+using TodoList.Services;
+using TodoList.Endpoints;
+using TodoList.Validators;
+using FluentValidation;
+using TodoList.Exceptions;
+using Microsoft.AspNetCore.Diagnostics;
+
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddEndpointsApiExplorer(); // Para que swagger descubra los endpoints
+builder.Services.AddSwaggerGen(); // Para que swagger genere la documentacion
+
+var todos = new List<Todo>();
+// var nextTodoId = 1;
+
+var users = new List<User>();
+// var nextUserId = 1;
+
+builder.Services.AddSingleton(users);
+builder.Services.AddSingleton(todos);
+builder.Services.AddSingleton<IUserService, UserService>();
+builder.Services.AddSingleton<ITodoService, TodoService>();
+
+// Registrar validadores automáticamente
+builder.Services.AddValidatorsFromAssemblyContaining<CreateUserDtoValidator>();
+
+var app = builder.Build();
+
+
+// Como manejamos errores globales
+// ✅ 1. Middleware de errores SIEMPRE ARRIBA
+app.UseExceptionHandler(errorApp =>
+{    
+    errorApp.Run(async context =>
+    {
+        
+        context.Response.ContentType = "application/json";
+
+        var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
+
+        if (exception is NotFoundException)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                error = exception.Message
+            });
+            return;
+        }
+        
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        await context.Response.WriteAsJsonAsync(new
+        {
+            error = "Ocurrió un error inesperado"
+        });
+    });
+});
+```
+
+## Agregando BD a nuestro proyecto 
+
+### Migrando primero el servicio de User
+
+Para ello instalaremos las siguientes librerias:
+
+```bash
+dotnet add package Microsoft.EntityFrameworkCore
+dotnet add package Microsoft.EntityFrameworkCore.SqlServer
+dotnet add package Microsoft.EntityFrameworkCore.Tools
+
+# PERO SI ESTAMOS CON LA VERSION 8.0 DE .NET ENTONCES LO QUE HACEMOS ES LO SIGUIENTE
+dotnet add package Microsoft.EntityFrameworkCore --version 8.0.0
+dotnet add package Microsoft.EntityFrameworkCore.SqlServer --version 8.0.0
+dotnet add package Microsoft.EntityFrameworkCore.Tools --version 8.0.0
+
+```
+| Paquete | Función |
+| ------- | ------- |
+|EntityFrameworkCore|Núcleo del ORM|
+|SqlServer|	Proveedor SQL Server |
+|Tools| Migraciones (dotnet ef)|
+
+Ahora instalaremos una herramiento de cli para que podamos ejecutar y crear nuestras migraciones.
+
+```bash
+dotnet tool install --global dotnet-ef --version 8.0.0
+```
+
+Con esto podremos ejecutar lo siguiente:
+
+| Comando                       | Para qué                          |
+| ----------------------------- | --------------------------------- |
+| `dotnet ef migrations add`    | Generar migraciones (archivos C#) |
+| `dotnet ef database update`   | Ejecutar migraciones en la DB     |
+| `dotnet ef migrations remove` | Borrar última migración           |
+| `dotnet ef dbcontext info`    | Ver DbContext                     |
+
+> Esto unicamente nos servira para nuestras migraciones ya que no esque sera una dependencia o algo que se subira a produccion
+
+Una vez que tengamos todo bien ejecutaremos las migraciones y veremos lo siguiente en nuestra consola:
+
+```bash
+PS C:\Users\nirg2\Desktop\EQUIPO\PRACTICAS\ApuntesNET\TodoList> dotnet ef migrations add InitialCreate
+Build started...
+Build succeeded.
+Done. To undo this action, use 'ef migrations remove'
+```
+
+Ya con todo esto veremos que se crea una carpeta de nombre Migrations y dentro de esta encontraremos nuestras migraciones que se usaran para comunicarnos y gestionar nuestra base de datos.
+
+#### Procedemos a modificar nuestros archivos para que se ejecuten ya no almacenando localmente sino en la Base de datos
+
+Creamos el AppDbContext que es una sesión temporal con la base de datos
+
+`TodoList\Context\AppDbContext.cs`
+```csharp
+using Microsoft.EntityFrameworkCore;
+using TodoList.Models;
+
+namespace TodoList.Context;
+
+public class AppDbContext : DbContext
+{
+    public AppDbContext(DbContextOptions<AppDbContext> options)
+        : base(options)
+    {
+    }
+
+    // EF crea SQL automáticamente a partir de tus 
+    // null! esto significa que el compilador que se inicializara en runtime
+    public DbSet<User> Users { get; set; } = null!;
+}
+```
+
+Ahora creamos la cadena de conexion en nuestro archivo
+
+`TodoList\appsettings.json.cs`
+```csharp
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*",
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=localhost,1433;Database=TodoListDb;User Id=sa;Password=Password123!;TrustServerCertificate=True"
+  }
+}
+```
+
+Y ahora en nuestro Program.cs registramos la sesión de la base de datos para que asi se pueda usar los servicios de base de datos en nuestro proyecto.
+
+`Program.cs`
+```csharp
+using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.EntityFrameworkCore;
+using TodoList.Models;
+using TodoList.Dtos;
+using TodoList.Services;
+using TodoList.Endpoints;
+using TodoList.Validators;
+using FluentValidation;
+using TodoList.Exceptions;
+using TodoList.Context;
+
+var builder = WebApplication.CreateBuilder(args);
+
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection"); // Obtenemos la cadena de conexion
+builder.Services.AddDbContext<AppDbContext>(options => 
+    options.UseSqlServer(connectionString) // Conectamos a la base de datos
+);
+builder.Services.AddScoped<IUserService, UserService>(); // Registramos los servicios para que estos puedan ser accedidos a la base de datos
+
+builder.Services.AddEndpointsApiExplorer(); // Para que swagger descubra los endpoints
+builder.Services.AddSwaggerGen(); // Para que swagger genere la documentacion
+
+var todos = new List<Todo>();
+
+builder.Services.AddSingleton(todos);
+builder.Services.AddSingleton<ITodoService, TodoService>();
+
+// Registrar validadores automáticamente
+builder.Services.AddValidatorsFromAssemblyContaining<CreateUserDtoValidator>();
+
+var app = builder.Build();
+
+
+// Como manejamos errores globales
+// ✅ 1. Middleware de errores SIEMPRE ARRIBA
+app.UseExceptionHandler(errorApp =>
+{    
+    errorApp.Run(async context =>
+    {
+        
+        context.Response.ContentType = "application/json";
+
+        var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
+
+        if (exception is NotFoundException)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                error = exception.Message
+            });
+            return;
+        }
+        
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        await context.Response.WriteAsJsonAsync(new
+        {
+            error = "Ocurrió un error inesperado"
+        });
+    });
+});
+
+// Configure the HTTP request pipeline.
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+// Redirige automáticamente a HTTPS si alguien hace un request HTTP
+app.UseHttpsRedirection();
+
+app.MapUserEndpoints();
+app.MapTodoEndpoints();
+
+app.Run();
+```
+
+Y ahora modificamos nuestro servicio como nuestra interfaz
+`TodoList\Services\IUserService.cs`
+```csharp
+using Microsoft.EntityFrameworkCore;
+using TodoList.Dtos;
+using TodoList.Models;
+
+namespace TodoList.Services;
+
+public interface IUserService
+{
+  Task<List<User>> GetAllAsync();
+  Task<User> CreateAsync(string name);
+}
+```
+
+`TodoList\Services\UserService.cs`
+```csharp
+using Microsoft.EntityFrameworkCore;
+using TodoList.Models;
+using TodoList.Dtos;
+using TodoList.Context;
+
+namespace TodoList.Services;
+
+public class UserService : IUserService
+{
+  private readonly AppDbContext _context;
+
+  public UserService(AppDbContext context)
+  {
+    _context = context;
+  }
+
+  public async Task<List<User>> GetAllAsync()
+  {
+    return await _context.Users.ToListAsync();
+  }
+
+  public async Task<User> CreateAsync(string name)
+  {
+    var user = new User
+    {
+      Name = name
+    };
+
+    _context.Users.Add(user);
+    await _context.SaveChangesAsync();
+
+    return user;
+  }
+
+}
+```
+
+Tambien modificamos nuestro modelo de usuario
+
+`TodoList\Models\User.cs`
+```csharp
+namespace TodoList.Models;
+
+public class User
+{
+  public int Id { get; set; }
+  public string Name { get; set; }
+}
+```
+
+Y por ultimo los endpoints para que sean asincronos y usen los nuevos metodos del servicio
+
+`TodoList\Endpoints\UserEndpoints.cs`
+```csharp
+using TodoList.Dtos;
+using TodoList.Models;
+using TodoList.Services;
+using TodoList.Validators;
+using FluentValidation;
+
+namespace TodoList.Endpoints;
+
+public static class UserEndpoints
+{
+  public static void MapUserEndpoints(this WebApplication app)
+  {
+    app.MapGet("/users", async (IUserService service) =>
+    {
+      var users = await service.GetAllAsync();
+      return Results.Ok(users);
+    });
+
+    app.MapPost("/users", async (
+      CreateUserDto dto, 
+      IValidator<CreateUserDto> validator, 
+      IUserService service
+    ) =>
+    {
+
+      var result = await validator.ValidateAsync(dto);
+
+      if(!result.IsValid)
+      {
+        return Results.ValidationProblem(
+          result.Errors
+            .GroupBy(e => e.PropertyName)
+            .ToDictionary(
+              g => g.Key,
+              g => g.Select(e => e.ErrorMessage).ToArray()
+            )
+          ); 
+      }
+
+      var user = await service.CreateAsync(dto.Name);
+      return Results.Ok(user);
+    });
+  }
+}
+```
+
+Algo que no podemos olvidar es crear nuestra base de datos con ayuda de docker y un archivo:
+
+`TodoList\database\docker-compose.yml`
+```yaml
+services:
+  sqlserver:
+    container_name: sqlserver
+    image: mcr.microsoft.com/mssql/server:2022-latest
+
+    ports:
+      - "1433:1433"
+
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Password123!"
+
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+    
+volumes:
+  sqlserver-data:
+    external: false
+```
+
+Ahora para subir nuestros cambios a la db ejecutaremos lo siguiente:
+
+```bash
+PS C:\Users\nirg2\Desktop\EQUIPO\PRACTICAS\ApuntesNET\TodoList> dotnet ef database update
+Build started...
+Build succeeded.
+System.ArgumentException: Keyword not supported: 'userid'.
+   at Microsoft.Data.Common.DbConnectionOptions.ParseInternal(Dictionary`2 parsetable, String connectionString, Boolean buildChain, Dictionary`2 synonyms, Boolean firstKey)
+   .
+   .
+   .
+Done.
+```
+
+
+
+`.cs`
+```csharp
+
+```
+
+`.cs`
+```csharp
+
+```
+
+`.cs`
+```csharp
+
+```
+
+`.cs`
+```csharp
+
+```
+
+`.cs`
+```csharp
+
+```
+
+`.cs`
+```csharp
+
+```
+
+`.cs`
+```csharp
+
+```
+
+`.cs`
+```csharp
+
+```
 
 `.cs`
 ```csharp
@@ -1234,12 +2174,6 @@ app.Run();
 
 ```
 
-```bash
-
-```
-```bash
-
-```
 ```bash
 
 ```

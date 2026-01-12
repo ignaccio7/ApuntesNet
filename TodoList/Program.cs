@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.EntityFrameworkCore;
 using TodoList.Models;
 using TodoList.Dtos;
 using TodoList.Services;
@@ -5,10 +7,16 @@ using TodoList.Endpoints;
 using TodoList.Validators;
 using FluentValidation;
 using TodoList.Exceptions;
-using Microsoft.AspNetCore.Diagnostics;
-
+using TodoList.Context;
 
 var builder = WebApplication.CreateBuilder(args);
+
+
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+builder.Services.AddDbContext<AppDbContext>(options => 
+    options.UseSqlServer(connectionString)
+);
+builder.Services.AddScoped<IUserService, UserService>();
 
 builder.Services.AddEndpointsApiExplorer(); // Para que swagger descubra los endpoints
 builder.Services.AddSwaggerGen(); // Para que swagger genere la documentacion
@@ -16,12 +24,12 @@ builder.Services.AddSwaggerGen(); // Para que swagger genere la documentacion
 var todos = new List<Todo>();
 // var nextTodoId = 1;
 
-var users = new List<User>();
+// var users = new List<User>();
 // var nextUserId = 1;
 
-builder.Services.AddSingleton(users);
+// builder.Services.AddSingleton(users);
 builder.Services.AddSingleton(todos);
-builder.Services.AddSingleton<IUserService, UserService>();
+// builder.Services.AddSingleton<IUserService, UserService>();
 builder.Services.AddSingleton<ITodoService, TodoService>();
 
 // Registrar validadores automáticamente

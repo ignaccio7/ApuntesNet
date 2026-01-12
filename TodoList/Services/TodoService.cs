@@ -6,13 +6,17 @@ namespace TodoList.Services;
 
 public class TodoService : ITodoService
 {
-  private readonly List<User> _users;
+  // private readonly List<User> _users;
   private readonly List<Todo> _todos;
   private int _nextId = 1;
 
-  public TodoService(List<User> users, List<Todo> todos)
+  // public TodoService(List<User> users, List<Todo> todos)
+  // {
+  //   _users = users;
+  //   _todos = todos;
+  // }
+  public TodoService(List<Todo> todos)
   {
-    _users = users;
     _todos = todos;
   }
 
@@ -30,29 +34,31 @@ public class TodoService : ITodoService
 
   public TodoResponseDto Create(string title, int userId)
   {
-    var user = _users.Find(u => u.Id == userId);
-    Console.WriteLine(user);
-    if (user == null)
-    {
-      throw new Exception("Usuario no existe");
-    }
+    // var user = _users.Find(u => u.Id == userId);
+    // Console.WriteLine(user);
+    // if (user == null)
+    // {
+    //   throw new Exception("Usuario no existe");
+    // }
     var todo = new Todo
     {
       Id = _nextId++,
       Title = title,
-      User = user
+      // User = user
     };
 
     _todos.Add(todo);
-    user.Todos.Add(todo);
+    // user.Todos.Add(todo);
 
     return new TodoResponseDto
     {
       Id = todo.Id,
       Title = todo.Title,
       IsCompleted = todo.IsCompleted,
-      UserId = todo.User.Id,
-      UserName = todo.User.Name
+      UserId = 1,
+      UserName = "1"
+      // UserId = todo.User.Id,
+      // UserName = todo.User.Name
     };
   }
 
@@ -86,7 +92,7 @@ public class TodoService : ITodoService
     }
 
     _todos.Remove(todo);
-    todo.User.Todos.Remove(todo);
+    // todo.User.Todos.Remove(todo);
     return true;
   }
 

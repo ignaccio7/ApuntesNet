@@ -13,9 +13,9 @@ public static class UserEndpoints
   // despues -> app.MapUserEndpoints();
   public static void MapUserEndpoints(this WebApplication app)
   {
-    app.MapGet("/users", (IUserService service) =>
+    app.MapGet("/users", async (IUserService service) =>
     {
-      var users = service.GetAll();
+      var users = await service.GetAllAsync();
       return Results.Ok(users);
     });
 
@@ -40,7 +40,7 @@ public static class UserEndpoints
           ); 
       }
 
-      var user = service.Create(dto.Name);
+      var user = await service.CreateAsync(dto.Name);
       return Results.Ok(user);
     });
   }
