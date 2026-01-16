@@ -17,20 +17,21 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(connectionString)
 );
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<ITodoService, TodoService>();
 
 builder.Services.AddEndpointsApiExplorer(); // Para que swagger descubra los endpoints
 builder.Services.AddSwaggerGen(); // Para que swagger genere la documentacion
 
-var todos = new List<Todo>();
+// var todos = new List<Todo>();
 // var nextTodoId = 1;
 
 // var users = new List<User>();
 // var nextUserId = 1;
 
 // builder.Services.AddSingleton(users);
-builder.Services.AddSingleton(todos);
+// builder.Services.AddSingleton(todos);
 // builder.Services.AddSingleton<IUserService, UserService>();
-builder.Services.AddSingleton<ITodoService, TodoService>();
+// builder.Services.AddSingleton<ITodoService, TodoService>();
 
 // Registrar validadores automáticamente
 builder.Services.AddValidatorsFromAssemblyContaining<CreateUserDtoValidator>();

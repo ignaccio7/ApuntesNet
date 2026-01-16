@@ -7,5 +7,5 @@ public class User
 
   // Relacion -> un usuario tiene muchos todos
   // que sera opcional porque puede crearse un user sin todos
-  // public List< Todo>? Todos { get; set; } = new();
+  public List< Todo>? Todos { get; set; } = new();
 }

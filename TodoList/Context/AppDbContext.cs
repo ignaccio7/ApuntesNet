@@ -13,4 +13,5 @@ public class AppDbContext : DbContext
     // EF crea SQL automáticamente a partir de tus 
     // null! esto significa que el compilador que se inicializara en runtime
     public DbSet<User> Users { get; set; } = null!;
+    public DbSet<Todo> Todos { get; set; } = null!;
 }

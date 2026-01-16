@@ -8,6 +8,6 @@ public interface IUserService
 {
   // List<UserResponseDto> GetAll();
   // UserResponseDto Create(string name);
-  Task<List<User>> GetAllAsync();
+  Task<List<UserResponseDto>> GetAllAsync();
   Task<User> CreateAsync(string name);
 }

@@ -6,6 +6,9 @@ public class Todo
   public string Title { get; set; }
   public bool IsCompleted { get; set; }
 
+  // Foreign Key
+  public int UserId { get; set; }
+
   // Relacion -> un todo tiene un usuario
   public User User { get; set; } = null!;
 }

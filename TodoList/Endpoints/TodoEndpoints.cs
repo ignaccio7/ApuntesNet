@@ -10,9 +10,10 @@ public static class TodoEndpoints
 {
   public static void MapTodoEndpoints(this WebApplication app)
   {
-    app.MapGet("/todos", (ITodoService service) =>
+    app.MapGet("/todos", async (ITodoService service) =>
     {
-      var todos = service.GetAll();
+      // var todos = service.GetAll();
+      var todos = await service.GetAllAsync();
       return Results.Ok(todos);
     });
 
@@ -42,7 +43,8 @@ public static class TodoEndpoints
         return Results.ValidationProblem(errors);
       }
 
-      var todo = service.Create(dto.Title, dto.UserId);
+      // var todo = service.Create(dto.Title, dto.UserId);
+      var todo = await service.CreateAsync(dto.Title, dto.UserId);
 
       return Results.Ok(todo);
     });
@@ -69,13 +71,15 @@ public static class TodoEndpoints
           ); 
       }
 
-      var ok = service.Update(id, dto.Title, dto.IsCompleted);
+      // var ok = service.Update(id, dto.Title, dto.IsCompleted);
+      var ok = await service.UpdateAsync(id, dto.Title, dto.IsCompleted);
       return ok ? Results.Ok() : Results.NotFound();
     });
 
-    app.MapDelete("/todos/{id}", (int id, ITodoService service) =>
+    app.MapDelete("/todos/{id}", async (int id, ITodoService service) =>
     {
-      var ok = service.Delete(id);
+      // var ok = service.Delete(id);
+      var ok = await service.DeleteAsync(id);
       return ok ? Results.Ok() : Results.NotFound();
     });
 

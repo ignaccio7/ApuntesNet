@@ -53,9 +53,15 @@ public class UserService : IUserService
     _context = context;
   }
 
-  public async Task<List<User>> GetAllAsync()
+  public async Task<List<UserResponseDto>> GetAllAsync()
   {
-    return await _context.Users.ToListAsync();
+    return await _context.Users
+    .Select(u => new UserResponseDto
+    {
+      Id = u.Id,
+      Name = u.Name
+    })
+    .ToListAsync();
   }
 
   public async Task<User> CreateAsync(string name)
