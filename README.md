@@ -1819,6 +1819,7 @@ Con esto podremos ejecutar lo siguiente:
 | `dotnet ef database update`   | Ejecutar migraciones en la DB     |
 | `dotnet ef migrations remove` | Borrar última migración           |
 | `dotnet ef dbcontext info`    | Ver DbContext                     |
+| `dotnet ef migrations remove` | Borrar la ultima migracion        |
 
 > Esto unicamente nos servira para nuestras migraciones ya que no esque sera una dependencia o algo que se subira a produccion
 
@@ -2113,7 +2114,434 @@ System.ArgumentException: Keyword not supported: 'userid'.
 Done.
 ```
 
+### Migrando el servicio de Todos
 
+Modificamos nuestro modelo del User para indicar que tendra como relacion los todos para poder usarlo.
+
+`TodoList\Models\User.cs`
+```csharp
+namespace TodoList.Models;
+
+public class User
+{
+  public int Id { get; set; }
+  public string Name { get; set; }
+
+  // Relacion -> un usuario tiene muchos todos
+  // que sera opcional porque puede crearse un user sin todos
+  public List< Todo>? Todos { get; set; } = new();
+}
+```
+
+Ahora tambien modifcamos nuestro modelo de Todos para que tenga la relacion del usuario asi como su campo ID de foranea con la tabla User.
+
+`TodoList\Models\Todo.cs`
+```csharp
+namespace TodoList.Models;
+
+public class Todo
+{
+  public int Id { get; set; }
+  public string Title { get; set; }
+  public bool IsCompleted { get; set; }
+
+  // Foreign Key
+  public int UserId { get; set; }
+
+  // Relacion -> un todo tiene un usuario
+  public User User { get; set; } = null!;
+}
+```
+
+Y ahora empezamos a migrar nuestras interfaces de servicios tanto de User como de Todos. Asi tambien como los DTOs de las respuestas en nuestros servicios.
+
+`TodoList\Dtos\TodoResponseCreateDto.cs`
+```csharp
+namespace TodoList.Dtos;
+
+public class TodoResponseCreateDto
+{
+  public int Id { get; set; }
+  public string Title { get; set; } = null!;
+  public bool IsCompleted { get; set; }
+  public int UserId { get; set; }
+}
+```
+
+`TodoList\Services\IUserService.cs`
+```csharp
+using Microsoft.EntityFrameworkCore;
+using TodoList.Dtos;
+using TodoList.Models;
+
+namespace TodoList.Services;
+
+public interface IUserService
+{
+  Task<List<UserResponseDto>> GetAllAsync();
+  Task<User> CreateAsync(string name);
+}
+```
+
+`TodoList\Services\ITodoService.cs`
+```csharp
+using TodoList.Models;
+using TodoList.Dtos;
+namespace TodoList.Services;
+
+public interface ITodoService
+{
+  Task<List<TodoResponseDto>> GetAllAsync();
+  Task<TodoResponseCreateDto> CreateAsync(string title, int userId);
+  Task<bool> UpdateAsync(int id, string title, bool isCompleted);
+  Task<bool> DeleteAsync(int id);
+}
+```
+
+`TodoList\Services\UserService.cs`
+```csharp
+using Microsoft.EntityFrameworkCore;
+using TodoList.Models;
+using TodoList.Dtos;
+using TodoList.Context;
+
+namespace TodoList.Services;
+
+public class UserService : IUserService
+{
+  private readonly AppDbContext _context;
+
+  public UserService(AppDbContext context)
+  {
+    _context = context;
+  }
+
+  public async Task<List<UserResponseDto>> GetAllAsync()
+  {
+    return await _context.Users
+    .Select(u => new UserResponseDto
+    {
+      Id = u.Id,
+      Name = u.Name
+    })
+    .ToListAsync();
+  }
+
+  public async Task<User> CreateAsync(string name)
+  {
+    var user = new User
+    {
+      Name = name
+    };
+
+    _context.Users.Add(user);
+    await _context.SaveChangesAsync();
+
+    return user;
+  }
+
+}
+```
+
+`TodoList\Services\TodoService.cs`
+```csharp
+using TodoList.Models;
+using TodoList.Dtos;
+using TodoList.Exceptions;
+using Microsoft.EntityFrameworkCore;
+using TodoList.Context;
+
+namespace TodoList.Services;
+
+public class TodoService : ITodoService
+{
+
+  private readonly AppDbContext _context;
+
+  public TodoService(AppDbContext context)
+  {
+    _context = context;
+  }
+
+  public async Task<List<TodoResponseDto>> GetAllAsync()
+  {
+    return await _context.Todos
+      .Include(t => t.User) // JOIN
+      .Select(t => new TodoResponseDto
+      {
+        Id = t.Id,
+        Title = t.Title,
+        IsCompleted = t.IsCompleted,
+        UserId = t.User.Id,
+        UserName = t.User.Name
+      })
+      .ToListAsync();
+  }
+
+  public async Task<TodoResponseCreateDto> CreateAsync(string title, int userId)
+  {
+    var user = await _context.Users.AnyAsync(u => u.Id == userId);
+    if (!user)
+    {
+      throw new Exception("El usuario no existe");
+    }
+
+    var todo = new Todo
+    {
+      Title = title,
+      UserId = userId,
+      IsCompleted = false
+    };
+
+    _context.Todos.Add(todo);
+    await _context.SaveChangesAsync();
+
+    // return todo;    
+    return new TodoResponseCreateDto
+    {
+      Id = todo.Id,
+      Title = todo.Title,
+      IsCompleted = todo.IsCompleted,
+      UserId = todo.UserId,
+    };    
+  }
+
+  public async Task<bool> UpdateAsync(int id, string title, bool isCompleted)
+  {
+    var todo = await _context.Todos.FindAsync(id);
+    if (todo is null)
+    {
+      return false;
+    }
+
+    todo.Title = title;
+    todo.IsCompleted = isCompleted;
+
+    await _context.SaveChangesAsync();
+    return true;    
+  }
+
+  public async Task<bool> DeleteAsync(int id)
+  {
+    var todo = await _context.Todos.FindAsync(id);
+    if (todo is null) return false;
+
+    _context.Todos.Remove(todo);
+    await _context.SaveChangesAsync();
+    return true;
+  }
+
+}
+```
+
+Asi tambien como el endpoint de Todos hacemos que sea asincrono. De esta forma cambiamos nuestros metodos respectivamente.
+
+`TodoList\Endpoints\TodoEndpoints.cs`
+```csharp
+using TodoList.Dtos;
+using TodoList.Services;
+using TodoList.Models;
+using TodoList.Validators;
+using FluentValidation;
+
+namespace TodoList.Endpoints;
+
+public static class TodoEndpoints
+{
+  public static void MapTodoEndpoints(this WebApplication app)
+  {
+    app.MapGet("/todos", async (ITodoService service) =>
+    {
+      // var todos = service.GetAll();
+      var todos = await service.GetAllAsync();
+      return Results.Ok(todos);
+    });
+
+    app.MapPost("/todos", async (CreateTodoDto dto, ITodoService service,IValidator<CreateTodoDto> validator) =>
+    {
+      var result = await validator.ValidateAsync(dto);
+
+      Console.WriteLine(result);
+      Console.WriteLine(result.Errors);
+
+      if(!result.IsValid)
+      {
+        var errors = result.Errors
+          .GroupBy(e => e.PropertyName)
+          .ToDictionary(
+            g => g.Key,
+            g => g.Select(e => e.ErrorMessage).ToArray()
+          );
+
+        return Results.ValidationProblem(errors);
+      }
+
+      // var todo = service.Create(dto.Title, dto.UserId);
+      var todo = await service.CreateAsync(dto.Title, dto.UserId);
+
+      return Results.Ok(todo);
+    });
+
+    app.MapPut("/todos/{id}", async (int id, UpdateTodoDto dto, IValidator<UpdateTodoDto> validator,ITodoService service) =>
+    {
+      var result = await validator.ValidateAsync(dto);
+
+      if(!result.IsValid)
+      {
+        return Results.ValidationProblem(
+          result.Errors
+            .GroupBy(e => e.PropertyName)
+            .ToDictionary(
+              g => g.Key,
+              g => g.Select(e => e.ErrorMessage).ToArray()
+            )
+          ); 
+      }
+
+      // var ok = service.Update(id, dto.Title, dto.IsCompleted);
+      var ok = await service.UpdateAsync(id, dto.Title, dto.IsCompleted);
+      return ok ? Results.Ok() : Results.NotFound();
+    });
+
+    app.MapDelete("/todos/{id}", async (int id, ITodoService service) =>
+    {
+      // var ok = service.Delete(id);
+      var ok = await service.DeleteAsync(id);
+      return ok ? Results.Ok() : Results.NotFound();
+    });
+
+  }
+}
+```
+
+Y ya casi terminando el archivo principal quedaria de la siguiente manera:
+
+`TodoList\Program.cs`
+```csharp
+using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.EntityFrameworkCore;
+using TodoList.Models;
+using TodoList.Dtos;
+using TodoList.Services;
+using TodoList.Endpoints;
+using TodoList.Validators;
+using FluentValidation;
+using TodoList.Exceptions;
+using TodoList.Context;
+
+var builder = WebApplication.CreateBuilder(args);
+
+
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+builder.Services.AddDbContext<AppDbContext>(options => 
+    options.UseSqlServer(connectionString)
+);
+builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<ITodoService, TodoService>();
+
+builder.Services.AddEndpointsApiExplorer(); // Para que swagger descubra los endpoints
+builder.Services.AddSwaggerGen(); // Para que swagger genere la documentacion
+
+// Registrar validadores automáticamente
+builder.Services.AddValidatorsFromAssemblyContaining<CreateUserDtoValidator>();
+
+var app = builder.Build();
+
+
+// Como manejamos errores globales
+// ✅ 1. Middleware de errores SIEMPRE ARRIBA
+app.UseExceptionHandler(errorApp =>
+{    
+    errorApp.Run(async context =>
+    {
+        
+        context.Response.ContentType = "application/json";
+
+        var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
+
+        if (exception is NotFoundException)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                error = exception.Message
+            });
+            return;
+        }
+        
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        await context.Response.WriteAsJsonAsync(new
+        {
+            error = "Ocurrió un error inesperado"
+        });
+    });
+});
+
+// Configure the HTTP request pipeline.
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+// Redirige automáticamente a HTTPS si alguien hace un request HTTP
+app.UseHttpsRedirection();
+
+app.MapUserEndpoints();
+app.MapTodoEndpoints();
+
+app.Run();
+```
+
+Ahora lo que quedaria es crear nuestra migracion y actualizar la base de datos con los siguientes comandos.
+
+```bash
+PS C:\Users\nirg2\Desktop\EQUIPO\PRACTICAS\ApuntesNET\TodoList> dotnet ef migrations add AddTodosAndUserRelation   
+Build started...
+Build succeeded.
+Done. To undo this action, use 'ef migrations remove'
+PS C:\Users\nirg2\Desktop\EQUIPO\PRACTICAS\ApuntesNET\TodoList> dotnet ef database update
+Build started...
+Build succeeded.
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (13ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT 1
+.
+.
+.
+```
+
+``
+```csharp
+
+```
+
+``
+```csharp
+
+```
+
+
+
+`.cs`
+```csharp
+
+```
+
+`.cs`
+```csharp
+
+```
+
+`.cs`
+```csharp
+
+```
+
+`.cs`
+```csharp
+
+```
 
 `.cs`
 ```csharp
